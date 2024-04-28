@@ -1,4 +1,5 @@
 import { SiGithub } from '@icons-pack/react-simple-icons';
+import profilePic from './assets/profile.webp';
 
 function App() {
   return (
@@ -7,7 +8,7 @@ function App() {
         <div className="flex flex-col items-center gap-y-8">
           <div className="flex flex-col items-center gap-y-2">
             <div className="size-24 overflow-hidden rounded-full border-2 border-gray-200">
-              <img className="size-full object-cover" src="/profile.webp" alt="プロフィールアイコン" />
+              <img className="size-full object-cover" src={profilePic} alt="プロフィールアイコン" />
             </div>
             <p className="text-2xl font-bold ">Hikaru Onitsuka</p>
             <div>
