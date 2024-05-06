@@ -1,5 +1,5 @@
 import { SiGithub } from '@icons-pack/react-simple-icons';
-import profilePic from './assets/profile.webp';
+import profilePic from '@/assets/profile.webp';
 
 function App() {
   return (

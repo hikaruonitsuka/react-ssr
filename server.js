@@ -1,104 +1,111 @@
-import fs from 'node:fs/promises'
-import express from 'express'
-import { Transform } from 'node:stream'
+import fs from 'node:fs/promises';
+import express from 'express';
+import { Transform } from 'node:stream';
 
-// Constants
-const isProduction = process.env.NODE_ENV === 'production'
-const port = process.env.PORT || 5173
-const base = process.env.BASE || '/'
-const ABORT_DELAY = 10000
+// 環境変数
+const isProduction = process.env.NODE_ENV === 'production';
+const port = 3000;
+const base = process.env.BASE || '/';
+const ABORT_DELAY = 10000; // タイムアウトまでの時間
 
-// Cached production assets
-const templateHtml = isProduction
-  ? await fs.readFile('./dist/client/index.html', 'utf-8')
-  : ''
-const ssrManifest = isProduction
-  ? await fs.readFile('./dist/client/.vite/ssr-manifest.json', 'utf-8')
-  : undefined
+// 本番環境の場合は、キャッシュ用のテンプレートHTMLとSSRマニフェストを読み込む
+const templateHtml = isProduction ? await fs.readFile('./dist/client/index.html', 'utf-8') : '';
+const ssrManifest = isProduction ? await fs.readFile('./dist/client/.vite/ssr-manifest.json', 'utf-8') : undefined;
 
-// Create http server
-const app = express()
+// HTTPサーバーを作成
+const app = express();
 
-// Add Vite or respective production middlewares
-let vite
+// 開発環境の場合はViteのcreateServerを使ってミドルウェアとしてサーバーを起動
+// 本番環境の場合は、圧縮ミドルウェアとSirvを使ってサーバーを起動
+// sirvは静的ファイルを提供するためのミドルウェア（この場合CSSファイルや画像ファイル）
+let vite;
 if (!isProduction) {
-  const { createServer } = await import('vite')
+  const { createServer } = await import('vite');
   vite = await createServer({
     server: { middlewareMode: true },
     appType: 'custom',
-    base
-  })
-  app.use(vite.middlewares)
+    base,
+  });
+  app.use(vite.middlewares);
 } else {
-  const compression = (await import('compression')).default
-  const sirv = (await import('sirv')).default
-  app.use(compression())
-  app.use(base, sirv('./dist/client', { extensions: [] }))
+  const compression = (await import('compression')).default;
+  const sirv = (await import('sirv')).default;
+  app.use(compression());
+  app.use(base, sirv('./dist/client', { extensions: [] }));
 }
 
-// Serve HTML
+// 全てのリクエストに対してHTMLを返却
 app.use('*', async (req, res) => {
   try {
-    const url = req.originalUrl.replace(base, '')
+    const url = req.originalUrl.replace(base, '');
 
-    let template
-    let render
+    // 開発時はViteのSSRを使ってHTMLを生成
+    // 本番環境の場合は、SSRのバンドルを読み込んでHTMLを生成
+    let template;
+    let render;
     if (!isProduction) {
-      // Always read fresh template in development
-      template = await fs.readFile('./index.html', 'utf-8')
-      template = await vite.transformIndexHtml(url, template)
-      render = (await vite.ssrLoadModule('/src/entry-server.tsx')).render
+      template = await fs.readFile('./index.html', 'utf-8');
+      template = await vite.transformIndexHtml(url, template); // テンプレートをViteのプラグインで変換
+      render = (await vite.ssrLoadModule('/src/entry-server.tsx')).render; // 設定されたエントリーポイントのモジュールをリアルタイム読み込みコンパイルする
     } else {
-      template = templateHtml
-      render = (await import('./dist/server/entry-server.js')).render
+      template = templateHtml;
+      render = (await import('./dist/server/entry-server.js')).render; // 本番環境の場合は、SSRのバンドルファイルを読み込む
     }
 
-    let didError = false
+    let didError = false; // エラーが発生したかどうか
 
+    // 指定されたURLに対してSSRを実行
     const { pipe, abort } = render(url, ssrManifest, {
+      // エラーが発生した場合の処理
       onShellError() {
-        res.status(500)
-        res.set({ 'Content-Type': 'text/html' })
-        res.send('<h1>Something went wrong</h1>')
+        res.status(500);
+        res.set({ 'Content-Type': 'text/html' });
+        res.send('<h1>サーバーエラー</h1>');
       },
+      // レンダリングの準備ができた場合の処理
       onShellReady() {
-        res.status(didError ? 500 : 200)
-        res.set({ 'Content-Type': 'text/html' })
+        res.status(didError ? 500 : 200);
+        res.set({ 'Content-Type': 'text/html' });
 
         const transformStream = new Transform({
           transform(chunk, encoding, callback) {
-            res.write(chunk, encoding)
-            callback()
-          }
-        })
+            res.write(chunk, encoding);
+            callback();
+          },
+        });
 
-        const [htmlStart, htmlEnd] = template.split(`<!--app-html-->`)
+				// テンプレートを分割して、SSRで生成されたHTMLを挿入できるようにする
+        const [htmlStart, htmlEnd] = template.split(`<!--app-html-->`);
 
-        res.write(htmlStart)
+				// 分割した初期部分のHTMLをレスポンスで返す
+        res.write(htmlStart);
 
+				// 全てのデータを受け取ったらfinishイベントを発火してレスポンスを閉じる
         transformStream.on('finish', () => {
-          res.end(htmlEnd)
-        })
+          res.end(htmlEnd);
+        });
 
-        pipe(transformStream)
+        pipe(transformStream); // SSRで生成されたHTMLを挿入してレスポンスを返す
       },
       onError(error) {
-        didError = true
-        console.error(error)
-      }
-    })
+        didError = true;
+        console.error(error);
+      },
+    });
 
+		// タイムアウト処理（SSRが指定時間内に完了しない場合に中止させるため）
     setTimeout(() => {
-      abort()
-    }, ABORT_DELAY)
+      abort();
+    }, ABORT_DELAY);
   } catch (e) {
-    vite?.ssrFixStacktrace(e)
-    console.log(e.stack)
-    res.status(500).end(e.stack)
+		// SSR処理中に発生したエラーをキャッチしてログに出力
+    vite?.ssrFixStacktrace(e);
+    console.log(e.stack);
+    res.status(500).end(e.stack);
   }
-})
+});
 
-// Start http server
+// サーバーのセットアップ
 app.listen(port, () => {
-  console.log(`Server started at http://localhost:${port}`)
-})
+  console.log(`Server started at http://localhost:${port}`);
+});
