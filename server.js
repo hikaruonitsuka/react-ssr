@@ -5,7 +5,7 @@ import { Transform } from 'node:stream';
 // 環境変数
 const isProduction = process.env.NODE_ENV === 'production';
 const port = 3000;
-const base = process.env.BASE || '/';
+const base = isProduction ? '/react-ssr/' : '/';
 const ABORT_DELAY = 10000; // タイムアウトまでの時間
 
 // 本番環境の場合は、キャッシュ用のテンプレートHTMLとSSRマニフェストを読み込む
@@ -107,5 +107,6 @@ app.use('*', async (req, res) => {
 
 // サーバーのセットアップ
 app.listen(port, () => {
-  console.log(`Server started at http://localhost:${port}`);
+  const fullUrl = isProduction ? `http://localhost:${port}${base}` : `http://localhost:${port}`;
+  console.log(`Server started at ${fullUrl}`);
 });
